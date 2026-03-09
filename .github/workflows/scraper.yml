@@ -1,0 +1,47 @@
+name: Business Listing Scraper
+
+on:
+  schedule:
+    # Runs every day at 8:00 AM Pacific Time (15:00 UTC)
+    - cron: '0 15 * * *'
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Restore the seen_listings.json cache so we don't re-alert on old listings
+      - name: Restore seen listings cache
+        uses: actions/cache@v4
+        with:
+          path: seen_listings.json
+          key: seen-listings-${{ runner.os }}
+          restore-keys: |
+            seen-listings-
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests beautifulsoup4 lxml
+
+      - name: Run scraper
+        env:
+          EMAIL_SENDER:    ${{ secrets.EMAIL_SENDER }}
+          EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+        run: python business_scraper.py
+
+      # Save updated seen_listings.json back to cache
+      - name: Save seen listings cache
+        uses: actions/cache@v4
+        with:
+          path: seen_listings.json
+          key: seen-listings-${{ runner.os }}

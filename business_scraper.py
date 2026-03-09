@@ -107,6 +107,40 @@ def parse_price(text: str) -> int | None:
         return int(m.group(1))
     return None
 
+def normalize_location(text: str) -> str:
+    """Normalize location text for fuzzy matching."""
+    import re
+    text = text.lower().strip()
+    # Expand common abbreviations
+    text = re.sub(r'\bsd\b', 'san diego', text)
+    text = re.sub(r'\boc\b', 'orange county', text)
+    text = re.sub(r'\bphx\b', 'phoenix', text)
+    text = re.sub(r'\baz\b', 'arizona', text)
+    text = re.sub(r'\bca\b', 'california', text)
+    # Remove punctuation noise
+    text = re.sub(r'[,.]', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
+    return text
+
+# All location variants we accept — cast a wide net
+LOCATION_VARIANTS = [
+    # San Diego
+    "san diego", "sandiego", "san diego county", "san diego ca",
+    "san diego california", "chula vista", "el cajon", "escondido",
+    "carlsbad", "oceanside", "vista", "santee", "la mesa", "el cajon",
+    "national city", "poway", "encinitas", "solana beach", "del mar",
+    # Orange County
+    "orange county", "orange co", "irvine", "anaheim", "santa ana",
+    "huntington beach", "fullerton", "garden grove", "orange ca",
+    "costa mesa", "mission viejo", "newport beach", "tustin", "yorba linda",
+    "laguna niguel", "lake forest", "aliso viejo", "rancho santa margarita",
+    # Phoenix / Scottsdale
+    "phoenix", "scottsdale", "tempe", "chandler", "gilbert", "glendale",
+    "peoria", "surprise", "mesa", "maricopa county", "east valley",
+    "paradise valley", "fountain hills", "cave creek", "carefree",
+    "phoenix az", "scottsdale az", "phoenix arizona", "scottsdale arizona",
+]
+
 def matches_criteria(listing: dict) -> tuple[bool, list[str]]:
     """
     Returns (True, reasons) if listing matches, (False, []) otherwise.
@@ -114,10 +148,15 @@ def matches_criteria(listing: dict) -> tuple[bool, list[str]]:
     """
     reasons = []
     title_desc = (listing.get("title", "") + " " + listing.get("description", "")).lower()
-    location = listing.get("location", "").lower()
+    raw_location = listing.get("location", "")
+    location = normalize_location(raw_location)
 
-    # ── Location check ──
-    if not any(loc in location for loc in CONFIG["locations"]):
+    # ── Location check — match against expanded variants list ──
+    location_matched = any(variant in location for variant in LOCATION_VARIANTS)
+    # Also check if location text appears in title/description (some sites embed it there)
+    if not location_matched:
+        location_matched = any(variant in title_desc for variant in LOCATION_VARIANTS)
+    if not location_matched:
         return False, []
 
     # ── Exclude industries ──
@@ -125,20 +164,23 @@ def matches_criteria(listing: dict) -> tuple[bool, list[str]]:
         return False, []
 
     # ── Cash flow / EBITDA / SDE range ──
+    # If cash flow IS listed and is OUT of range → exclude
+    # If cash flow IS listed and IN range → include with confirmation
+    # If cash flow is NOT listed → include with a manual verify flag
     cf = listing.get("cash_flow")
     if cf:
         if not (CONFIG["min_ebitda"] <= cf <= CONFIG["max_ebitda"]):
             return False, []
-        reasons.append(f"Cash flow ${cf:,} is within target range")
+        reasons.append(f"✅ Cash flow ${cf:,} is within target range ($650K–$1.5M)")
     else:
-        reasons.append("Cash flow not listed — verify manually")
+        reasons.append("⚠️ Cash flow not listed — verify manually before pursuing")
 
     # ── Preferred keyword bonuses ──
     found_keywords = [kw for kw in CONFIG["preferred_keywords"] if kw in title_desc]
     if found_keywords:
-        reasons.append(f"Keywords matched: {', '.join(found_keywords)}")
+        reasons.append(f"🌟 Keywords matched: {', '.join(found_keywords)}")
 
-    reasons.insert(0, f"Location matched: {listing.get('location', 'N/A')}")
+    reasons.insert(0, f"📍 Location matched: {raw_location or 'N/A'}")
     return True, reasons
 
 
@@ -483,32 +525,60 @@ def scrape_smergers() -> list[dict]:
 # ─────────────────────────────────────────────
 
 def build_email_html(matches: list[dict]) -> str:
-    rows = ""
-    for m in matches:
+    verified   = [m for m in matches if m.get("cash_flow")]
+    unverified = [m for m in matches if not m.get("cash_flow")]
+
+    def render_card(m):
         reasons_html = "".join(f"<li>{r}</li>" for r in m.get("reasons", []))
-        cf_display = f"${m['cash_flow']:,}" if m.get("cash_flow") else "Not listed"
-        rows += f"""
-        <div style="border:1px solid #ddd;border-radius:8px;padding:16px;margin-bottom:16px;font-family:Arial,sans-serif;">
+        cf_display = f"${m['cash_flow']:,}" if m.get("cash_flow") else "⚠️ Not listed"
+        border_color = "#27ae60" if m.get("cash_flow") else "#f39c12"
+        return f"""
+        <div style="border-left:4px solid {border_color};border:1px solid #ddd;border-radius:8px;
+                    padding:16px;margin-bottom:16px;font-family:Arial,sans-serif;">
           <h3 style="margin:0 0 4px 0;">
             <a href="{m['url']}" style="color:#1a73e8;text-decoration:none;">{m['title']}</a>
           </h3>
           <p style="margin:2px 0;color:#555;font-size:13px;">
-            📍 {m['location']} &nbsp;|&nbsp; 💰 SDE/EBITDA: <strong>{cf_display}</strong>
-            &nbsp;|&nbsp; 🔗 {m['source']}
+            📍 {m.get('location','N/A')} &nbsp;|&nbsp;
+            💰 SDE/EBITDA: <strong>{cf_display}</strong> &nbsp;|&nbsp;
+            🔗 {m['source']}
           </p>
           <p style="margin:8px 0;font-size:13px;color:#333;">{m.get('description','')}</p>
           <ul style="font-size:12px;color:#555;margin:6px 0 0 0;padding-left:18px;">{reasons_html}</ul>
         </div>
         """
+
+    verified_section = ""
+    if verified:
+        cards = "".join(render_card(m) for m in verified)
+        verified_section = f"""
+        <h3 style="color:#27ae60;">✅ Cash Flow Confirmed ({len(verified)})</h3>
+        {cards}
+        """
+
+    unverified_section = ""
+    if unverified:
+        cards = "".join(render_card(m) for m in unverified)
+        unverified_section = f"""
+        <h3 style="color:#f39c12;">⚠️ Cash Flow Not Listed — Verify Manually ({len(unverified)})</h3>
+        <p style="font-size:12px;color:#888;margin-top:-8px;">
+          These matched on location and passed industry filters, but cash flow wasn't shown in the listing preview.
+          Click through to confirm before pursuing.
+        </p>
+        {cards}
+        """
+
     return f"""
-    <html><body style="font-family:Arial,sans-serif;max-width:700px;margin:auto;">
+    <html><body style="font-family:Arial,sans-serif;max-width:700px;margin:auto;padding:20px;">
       <h2 style="color:#1a73e8;">🏢 New Business Listings — {datetime.now().strftime('%b %d, %Y')}</h2>
-      <p>Found <strong>{len(matches)}</strong> new listing(s) matching your criteria:</p>
+      <p>Found <strong>{len(matches)}</strong> new listing(s) matching your criteria
+         ({len(verified)} with confirmed cash flow, {len(unverified)} to verify).</p>
       <hr>
-      {rows}
+      {verified_section}
+      {unverified_section}
       <hr>
       <p style="font-size:11px;color:#999;">
-        Criteria: EBITDA/SDE $650K–$1.5M | San Diego, Orange County, Phoenix/Scottsdale
+        Criteria: EBITDA/SDE $650K–$1.5M | San Diego County, Orange County, Phoenix/Scottsdale
         | Excluding: restaurants, gyms, mail routes, franchises
       </p>
     </body></html>

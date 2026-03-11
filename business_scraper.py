@@ -28,6 +28,9 @@ CONFIG = {
     "email_password": os.environ.get("EMAIL_PASSWORD", ""),   # Gmail App Password
     "email_recipient": os.environ.get("EMAIL_RECIPIENT", "your_email@gmail.com"),
 
+    # ScraperAPI key (set as GitHub Secret: SCRAPER_API_KEY)
+    "scraper_api_key": os.environ.get("SCRAPER_API_KEY", ""),
+
     # Search criteria
     "min_ebitda": 650_000,
     "max_ebitda": 1_500_000,
@@ -82,9 +85,18 @@ def listing_id(url: str) -> str:
 # ─────────────────────────────────────────────
 
 def get_soup(url: str, retries: int = 3) -> BeautifulSoup | None:
+    """Fetch a URL, routing through ScraperAPI to bypass 403 blocks."""
+    api_key = CONFIG.get("scraper_api_key", "")
+    if api_key:
+        import urllib.parse
+        encoded = urllib.parse.quote(url, safe="")
+        proxy_url = f"http://api.scraperapi.com?api_key={api_key}&url={encoded}&render=false"
+    else:
+        proxy_url = url  # fallback to direct (will likely 403)
+
     for attempt in range(retries):
         try:
-            resp = requests.get(url, headers=HEADERS, timeout=20)
+            resp = requests.get(proxy_url, headers=HEADERS, timeout=60)
             resp.raise_for_status()
             return BeautifulSoup(resp.text, "html.parser")
         except Exception as e:

@@ -14,7 +14,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Restore the seen_listings.json cache so we don't re-alert on old listings
       - name: Restore seen listings cache
         uses: actions/cache@v4
         with:
@@ -32,7 +31,7 @@ jobs:
         run: |
           pip install requests beautifulsoup4 lxml
 
-- name: Run scraper
+      - name: Run scraper
         env:
           EMAIL_SENDER:    ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
@@ -40,7 +39,6 @@ jobs:
           SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: python business_scraper.py
 
-      # Save updated seen_listings.json back to cache
       - name: Save seen listings cache
         uses: actions/cache@v4
         with:

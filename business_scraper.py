@@ -91,12 +91,14 @@ def get_soup(url: str, retries: int = 3) -> BeautifulSoup | None:
         import urllib.parse
         encoded = urllib.parse.quote(url, safe="")
         proxy_url = f"http://api.scraperapi.com?api_key={api_key}&url={encoded}&render=false"
+        log.info(f"Using ScraperAPI for: {url[:60]}...")
     else:
-        proxy_url = url  # fallback to direct (will likely 403)
+        proxy_url = url
+        log.warning("No ScraperAPI key found — using direct request (may 403)")
 
     for attempt in range(retries):
         try:
-            resp = requests.get(proxy_url, headers=HEADERS, timeout=60)
+            resp = requests.get(proxy_url, timeout=60)
             resp.raise_for_status()
             return BeautifulSoup(resp.text, "html.parser")
         except Exception as e:
@@ -284,10 +286,10 @@ def scrape_bizquest() -> list[dict]:
 def scrape_businessbroker() -> list[dict]:
     listings = []
     urls = [
-        ("https://www.businessbroker.net/businesses/for-sale/california/san-diego.aspx", "San Diego County, CA"),
-        ("https://www.businessbroker.net/businesses/for-sale/california/orange-county.aspx", "Orange County, CA"),
-        ("https://www.businessbroker.net/businesses/for-sale/arizona/phoenix.aspx", "Phoenix, AZ"),
-        ("https://www.businessbroker.net/businesses/for-sale/arizona/scottsdale.aspx", "Scottsdale, AZ"),
+        ("https://www.businessbroker.net/california/san-diego-county-businesses-for-sale.aspx", "San Diego County, CA"),
+        ("https://www.businessbroker.net/california/orange-county-businesses-for-sale.aspx", "Orange County, CA"),
+        ("https://www.businessbroker.net/arizona/phoenix-businesses-for-sale.aspx", "Phoenix, AZ"),
+        ("https://www.businessbroker.net/arizona/scottsdale-businesses-for-sale.aspx", "Scottsdale, AZ"),
     ]
     for url, label in urls:
         soup = get_soup(url)
@@ -321,7 +323,7 @@ def scrape_businessbroker() -> list[dict]:
 
 def scrape_dealstream() -> list[dict]:
     listings = []
-    url = "https://dealstream.com/s/business/usa?state=CA,AZ&cashflow_min=650000&cashflow_max=1500000"
+    url = "https://dealstream.com/businesses-for-sale?location=california&min_cash_flow=650000&max_cash_flow=1500000"
     soup = get_soup(url)
     if not soup:
         return listings
@@ -356,9 +358,9 @@ def scrape_bizpen() -> list[dict]:
     """Bizpen.com scraper"""
     listings = []
     searches = [
-        ("https://www.bizpen.com/listings?location=san+diego&cf_min=650000", "San Diego County, CA"),
-        ("https://www.bizpen.com/listings?location=orange+county&cf_min=650000", "Orange County, CA"),
-        ("https://www.bizpen.com/listings?location=phoenix&cf_min=650000", "Phoenix, AZ"),
+        ("https://www.bizpen.com/businesses-for-sale/california/san-diego/", "San Diego County, CA"),
+        ("https://www.bizpen.com/businesses-for-sale/california/orange-county/", "Orange County, CA"),
+        ("https://www.bizpen.com/businesses-for-sale/arizona/phoenix/", "Phoenix, AZ"),
     ]
     for url, label in searches:
         soup = get_soup(url)
@@ -501,7 +503,7 @@ def scrape_loopnet() -> list[dict]:
 
 def scrape_smergers() -> list[dict]:
     listings = []
-    url = "https://smergers.com/businesses-for-sale/united-states/california/?cashflow_min=650000"
+    url = "https://www.smergers.com/businesses-for-sale/united-states/?cashflow_min=650000&location=california,arizona"
     soup = get_soup(url)
     if not soup:
         return listings

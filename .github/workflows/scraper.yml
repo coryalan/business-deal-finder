@@ -32,11 +32,12 @@ jobs:
         run: |
           pip install requests beautifulsoup4 lxml
 
-      - name: Run scraper
+- name: Run scraper
         env:
           EMAIL_SENDER:    ${{ secrets.EMAIL_SENDER }}
           EMAIL_PASSWORD:  ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          SCRAPER_API_KEY: ${{ secrets.SCRAPER_API_KEY }}
         run: python business_scraper.py
 
       # Save updated seen_listings.json back to cache
